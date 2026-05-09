@@ -145,6 +145,20 @@
     <!-- Current Configuration -->
     <div class="section">
       <h2>📋 Current Configuration</h2>
+      <div style="margin-bottom: 15px;">
+        <div style="margin-bottom: 8px;">
+          <label for="supabase-url-input" style="display:block; margin-bottom:4px; font-weight:600;">Supabase URL</label>
+          <input id="supabase-url-input" type="text" placeholder="https://your-project-ref.supabase.co" style="width:100%; padding:10px; border:1px solid #ced4da; border-radius:6px; font-size:13px;">
+        </div>
+        <div style="margin-bottom: 8px;">
+          <label for="supabase-key-input" style="display:block; margin-bottom:4px; font-weight:600;">Supabase anon key</label>
+          <input id="supabase-key-input" type="text" placeholder="eyJhbGciOi..." style="width:100%; padding:10px; border:1px solid #ced4da; border-radius:6px; font-size:13px;">
+        </div>
+        <div>
+          <button class="btn" onclick="saveManualConfig()">Save credentials</button>
+          <button class="btn" onclick="clearManualConfig()">Clear saved credentials</button>
+        </div>
+      </div>
       <div id="config-status">
         <div class="loading"></div> Loading configuration...
       </div>
@@ -174,18 +188,115 @@
   </div>
 
   <script>
-    // Get configuration from index.html context
+    const STORAGE_KEYS = {
+      supabaseUrl: 'supabase_checker_url',
+      supabaseKey: 'supabase_checker_key',
+      apiUrl: 'supabase_checker_api_url'
+    };
+
+    function readFromUrlParam(name) {
+      return new URLSearchParams(window.location.search).get(name) || '';
+    }
+
+    function getSafeInputValue(id) {
+      const el = document.getElementById(id);
+      return el ? el.value.trim() : '';
+    }
+
+    function getSavedConfig() {
+      try {
+        return {
+          supabaseUrl: localStorage.getItem(STORAGE_KEYS.supabaseUrl) || '',
+          supabaseKey: localStorage.getItem(STORAGE_KEYS.supabaseKey) || '',
+          apiUrl: localStorage.getItem(STORAGE_KEYS.apiUrl) || ''
+        };
+      } catch (_) {
+        return { supabaseUrl: '', supabaseKey: '', apiUrl: '' };
+      }
+    }
+
+    function getConfigSource(config) {
+      if (!config.supabaseUrl || !config.supabaseKey) return 'missing';
+      if (window.SUPABASE_URL && window.SUPABASE_ANON_KEY) return 'window globals';
+      if (readFromUrlParam('supabaseUrl') && readFromUrlParam('supabaseKey')) return 'URL params';
+      if (getSavedConfig().supabaseUrl && getSavedConfig().supabaseKey) return 'saved credentials';
+      if (getSafeInputValue('supabase-url-input') && getSafeInputValue('supabase-key-input')) return 'manual input';
+      return 'unknown';
+    }
+
+    // Get configuration from multiple sources
     function getConfig() {
+      const saved = getSavedConfig();
+      const inputUrl = getSafeInputValue('supabase-url-input');
+      const inputKey = getSafeInputValue('supabase-key-input');
+      const urlParamSupabaseUrl = readFromUrlParam('supabaseUrl');
+      const urlParamSupabaseKey = readFromUrlParam('supabaseKey');
+
       return {
-        supabaseUrl: window.SUPABASE_URL || '',
-        supabaseKey: window.SUPABASE_ANON_KEY || '',
-        apiUrl: window.CHATBOT_API_URL || 'http://localhost:3000/api'
+        supabaseUrl: inputUrl || window.SUPABASE_URL || urlParamSupabaseUrl || saved.supabaseUrl || '',
+        supabaseKey: inputKey || window.SUPABASE_ANON_KEY || urlParamSupabaseKey || saved.supabaseKey || '',
+        apiUrl: window.CHATBOT_API_URL || readFromUrlParam('apiUrl') || saved.apiUrl || 'http://localhost:3000/api'
       };
+    }
+
+    function populateInputsFromConfig() {
+      const config = getConfig();
+      const urlInput = document.getElementById('supabase-url-input');
+      const keyInput = document.getElementById('supabase-key-input');
+      if (urlInput && !urlInput.value) urlInput.value = config.supabaseUrl || '';
+      if (keyInput && !keyInput.value) keyInput.value = config.supabaseKey || '';
+    }
+
+    function saveManualConfig() {
+      const urlValue = getSafeInputValue('supabase-url-input');
+      const keyValue = getSafeInputValue('supabase-key-input');
+      const resultsDiv = document.getElementById('test-results');
+
+      if (!urlValue || !keyValue) {
+        resultsDiv.innerHTML = '<div class="status error">❌ Enter both Supabase URL and anon key before saving.</div>';
+        return;
+      }
+
+      try {
+        localStorage.setItem(STORAGE_KEYS.supabaseUrl, urlValue);
+        localStorage.setItem(STORAGE_KEYS.supabaseKey, keyValue);
+        resultsDiv.innerHTML = '<div class="status success">✅ Credentials saved locally for this browser.</div>';
+      } catch (_) {
+        resultsDiv.innerHTML = '<div class="status warning">⚠️ Could not save credentials in localStorage. You can still run tests in this session.</div>';
+      }
+
+      displayConfig();
+    }
+
+    function clearManualConfig() {
+      try {
+        localStorage.removeItem(STORAGE_KEYS.supabaseUrl);
+        localStorage.removeItem(STORAGE_KEYS.supabaseKey);
+        localStorage.removeItem(STORAGE_KEYS.apiUrl);
+      } catch (_) {
+        // Ignore localStorage failures and still clear UI fields.
+      }
+
+      const urlInput = document.getElementById('supabase-url-input');
+      const keyInput = document.getElementById('supabase-key-input');
+      if (urlInput) urlInput.value = '';
+      if (keyInput) keyInput.value = '';
+      displayConfig();
+      document.getElementById('test-results').innerHTML = '<div class="status info">ℹ️ Saved credentials cleared.</div>';
+    }
+
+    function formatSupabaseError(errorData) {
+      const message = errorData.message || errorData.error_description || errorData.error || 'Unknown error';
+      const hint = errorData.hint ? `<br>Hint: ${errorData.hint}` : '';
+      const details = errorData.details ? `<br>Details: ${errorData.details}` : '';
+      const code = errorData.code ? `<br>Code: ${errorData.code}` : '';
+      return `${message}${hint}${details}${code}`;
     }
 
     function displayConfig() {
       const config = getConfig();
       const statusDiv = document.getElementById('config-status');
+      const source = getConfigSource(config);
       
       let html = '<div class="config-item"><strong>SUPABASE_URL:</strong> ';
       if (config.supabaseUrl && config.supabaseUrl !== '' && config.supabaseUrl !== 'your_supabase_url') {
@@ -203,6 +314,7 @@
 
       html += '<div class="config-item"><strong>CHATBOT_API_URL:</strong> ';
       html += `<span>${config.apiUrl}</span></div>`;
+      html += `<div class="config-item"><strong>CONFIG SOURCE:</strong> <span>${source}</span></div>`;
 
       // Overall status
       const isConfigured = config.supabaseUrl && config.supabaseKey && 
@@ -213,7 +325,7 @@
       if (isConfigured) {
         html += '<div class="status success" style="margin-top: 15px;">✅ Supabase credentials are configured!</div>';
       } else {
-        html += '<div class="status error" style="margin-top: 15px;">❌ Supabase credentials are NOT configured. Please update index.html with your Supabase URL and key.</div>';
+        html += '<div class="status error" style="margin-top: 15px;">❌ Supabase credentials are NOT configured. Add them in the inputs above, or expose SUPABASE_URL and SUPABASE_ANON_KEY from your app page.</div>';
       }
 
       statusDiv.innerHTML = html;
@@ -232,21 +344,26 @@
 
       try {
         // Test basic connection by querying a simple endpoint
-        const response = await fetch(`${config.supabaseUrl}/rest/v1/`, {
+        const response = await fetch(`${config.supabaseUrl}/rest/v1/contact_submissions?select=id&limit=1`, {
           method: 'GET',
           headers: {
             'apikey': config.supabaseKey,
-            'Authorization': `Bearer ${config.supabaseKey}`
+            'Authorization': `Bearer ${config.supabaseKey}`,
+            'Accept': 'application/json'
           }
         });
 
-        if (response.ok || response.status === 404) {
-          // 404 is okay - it means we connected but endpoint doesn't exist
-          resultsDiv.innerHTML = '<div class="status success">✅ Successfully connected to Supabase!<br>Your credentials are valid and the connection is working.</div>';
+        if (response.ok) {
+          resultsDiv.innerHTML = '<div class="status success">✅ Successfully connected to Supabase REST API and reached the contact table.</div>';
         } else if (response.status === 401) {
           resultsDiv.innerHTML = '<div class="status error">❌ Authentication failed. Please check your SUPABASE_ANON_KEY - it may be incorrect or expired.</div>';
+        } else if (response.status === 403) {
+          resultsDiv.innerHTML = '<div class="status error">❌ Connected, but access is blocked by RLS policy. Add a SELECT policy on <code>contact_submissions</code> for anon/authenticated users.</div>';
+        } else if (response.status === 404) {
+          resultsDiv.innerHTML = '<div class="status error">❌ Could not find <code>contact_submissions</code>. Create the table or check schema/table name.</div>';
         } else {
-          resultsDiv.innerHTML = `<div class="status warning">⚠️ Connection response: ${response.status} ${response.statusText}</div>`;
+          const errorData = await response.json().catch(() => ({ message: response.statusText }));
+          resultsDiv.innerHTML = `<div class="status warning">⚠️ Connection response: ${response.status}<br>${formatSupabaseError(errorData)}</div>`;
         }
       } catch (error) {
         resultsDiv.innerHTML = `<div class="status error">❌ Connection failed: ${error.message}<br><br>Possible issues:<br>- Check your SUPABASE_URL is correct<br>- Check your internet connection<br>- Verify Supabase project is active</div>`;
@@ -270,7 +387,7 @@
           headers: {
             'apikey': config.supabaseKey,
             'Authorization': `Bearer ${config.supabaseKey}`,
-            'Prefer': 'return=representation'
+            'Accept': 'application/json'
           }
         });
 
@@ -281,9 +398,11 @@
           resultsDiv.innerHTML = '<div class="status error">❌ Table not found. Please run the SQL setup script:<br><code>server/supabase-setup.sql</code><br>in your Supabase SQL Editor.</div>';
         } else if (response.status === 401) {
           resultsDiv.innerHTML = '<div class="status error">❌ Authentication failed. Check your API key.</div>';
+        } else if (response.status === 403) {
+          resultsDiv.innerHTML = '<div class="status error">❌ Table exists but SELECT blocked by RLS. Add a SELECT policy for your public role.</div>';
         } else {
-          const errorText = await response.text();
-          resultsDiv.innerHTML = `<div class="status error">❌ Error: ${response.status} ${response.statusText}<br>${errorText.substring(0, 200)}</div>`;
+          const errorData = await response.json().catch(() => ({ message: response.statusText }));
+          resultsDiv.innerHTML = `<div class="status error">❌ Error: ${response.status}<br>${formatSupabaseError(errorData)}</div>`;
         }
       } catch (error) {
         resultsDiv.innerHTML = `<div class="status error">❌ Test failed: ${error.message}</div>`;
@@ -315,7 +434,8 @@
             'Content-Type': 'application/json',
             'apikey': config.supabaseKey,
             'Authorization': `Bearer ${config.supabaseKey}`,
-            'Prefer': 'return=representation'
+            'Prefer': 'return=representation',
+            'Accept': 'application/json'
           },
           body: JSON.stringify(testData)
         });
@@ -327,10 +447,12 @@
           const errorData = await response.json().catch(() => ({ message: response.statusText }));
           if (response.status === 401) {
             resultsDiv.innerHTML = '<div class="status error">❌ Authentication failed. Check your API key and RLS policies.</div>';
+          } else if (response.status === 403) {
+            resultsDiv.innerHTML = '<div class="status error">❌ Insert blocked by RLS policy. Add an INSERT policy for anon/authenticated users on <code>contact_submissions</code>.</div>';
           } else if (response.status === 404) {
             resultsDiv.innerHTML = '<div class="status error">❌ Table not found. Run the SQL setup script first.</div>';
           } else {
-            resultsDiv.innerHTML = `<div class="status error">❌ Submission failed: ${response.status}<br>${errorData.message || errorData.error_description || 'Unknown error'}</div>`;
+            resultsDiv.innerHTML = `<div class="status error">❌ Submission failed: ${response.status}<br>${formatSupabaseError(errorData)}</div>`;
           }
         }
       } catch (error) {
@@ -346,7 +468,8 @@
         window.SUPABASE_ANON_KEY = window.parent.SUPABASE_ANON_KEY;
         window.CHATBOT_API_URL = window.parent.CHATBOT_API_URL;
       }
-      
+
+      populateInputsFromConfig();
       displayConfig();
     });
   </script>
