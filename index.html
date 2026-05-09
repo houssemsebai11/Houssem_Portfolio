@@ -805,7 +805,8 @@
 
                 <div class="col-md-12">
                   <label for="message-field" class="pb-2">Message</label>
-                  <textarea class="form-control" name="message" rows="10" id="message-field" required=""></textarea>
+                  <textarea class="form-control" name="message" rows="10" id="message-field" maxlength="1500" required=""></textarea>
+                  <small id="message-char-count" class="text-muted d-block mt-2">0 / 1500 characters</small>
                 </div>
 
                 <div class="col-md-12 text-center">
@@ -921,6 +922,17 @@
 
       if (portfolioAssistantTrigger) {
         portfolioAssistantTrigger.addEventListener('click', openChatbot);
+      }
+
+      // Contact message live character counter
+      const messageField = document.getElementById('message-field');
+      const messageCounter = document.getElementById('message-char-count');
+      if (messageField && messageCounter) {
+        const updateCounter = function() {
+          messageCounter.textContent = `${messageField.value.length} / 1500 characters`;
+        };
+        messageField.addEventListener('input', updateCounter);
+        updateCounter();
       }
     });
   </script>

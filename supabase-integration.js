@@ -3,15 +3,22 @@
  * This file handles form submissions to Supabase
  */
 
-// Supabase configuration
-const SUPABASE_URL = window.SUPABASE_URL || 'your_supabase_url';
-const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || 'your_supabase_anon_key';
+// Supabase configuration helpers
+function getSupabaseConfig() {
+  return {
+    url: window.SUPABASE_URL || '',
+    anonKey: window.SUPABASE_ANON_KEY || ''
+  };
+}
 
 // Initialize Supabase client (if using Supabase JS library)
 let supabaseClient = null;
 
-if (typeof supabase !== 'undefined') {
-  supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+function getSupabaseClient() {
+  if (typeof supabase === 'undefined') return null;
+  const config = getSupabaseConfig();
+  if (!config.url || !config.anonKey) return null;
+  return supabase.createClient(config.url, config.anonKey);
 }
 
 /**
@@ -27,6 +34,7 @@ async function submitFormToSupabase(formData) {
 
   try {
     // Option 1: Use Supabase JS client (if loaded)
+    supabaseClient = getSupabaseClient();
     if (supabaseClient) {
       const { data: result, error } = await supabaseClient
         .from('contact_submissions')
@@ -38,12 +46,14 @@ async function submitFormToSupabase(formData) {
     }
 
     // Option 2: Use fetch API directly
-    const response = await fetch(`${SUPABASE_URL}/rest/v1/contact_submissions`, {
+    const config = getSupabaseConfig();
+    const response = await fetch(`${config.url}/rest/v1/contact_submissions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'apikey': SUPABASE_ANON_KEY,
-        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+        'apikey': config.anonKey,
+        'Authorization': `Bearer ${config.anonKey}`,
+        'Prefer': 'return=representation'
       },
       body: JSON.stringify(data)
     });
@@ -106,12 +116,12 @@ async function submitFormViaAPI(formData) {
  * Submit directly to Supabase (fallback method)
  */
 async function submitFormDirectToSupabase(formData) {
+  const config = getSupabaseConfig();
+
   // Check if Supabase credentials are configured
-  if (!window.SUPABASE_URL || !window.SUPABASE_ANON_KEY || 
-      window.SUPABASE_URL === 'your_supabase_url' || 
-      window.SUPABASE_ANON_KEY === 'your_supabase_anon_key' ||
-      window.SUPABASE_URL === '' || 
-      window.SUPABASE_ANON_KEY === '') {
+  if (!config.url || !config.anonKey ||
+      config.url === 'your_supabase_url' ||
+      config.anonKey === 'your_supabase_anon_key') {
     throw new Error('Supabase credentials not configured');
   }
 
@@ -123,12 +133,12 @@ async function submitFormDirectToSupabase(formData) {
   };
 
   try {
-    const response = await fetch(`${window.SUPABASE_URL}/rest/v1/contact_submissions`, {
+    const response = await fetch(`${config.url}/rest/v1/contact_submissions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'apikey': window.SUPABASE_ANON_KEY,
-        'Authorization': `Bearer ${window.SUPABASE_ANON_KEY}`,
+        'apikey': config.anonKey,
+        'Authorization': `Bearer ${config.anonKey}`,
         'Prefer': 'return=representation'
       },
       body: JSON.stringify(data)
@@ -164,18 +174,16 @@ async function submitFormDirectToSupabase(formData) {
     
     forms.forEach(form => {
       let submissionInProgress = false;
-      let submissionCompleted = false;
-      
+
       // Function to submit to Supabase with fallback
       async function submitToSupabase(formData) {
-        if (submissionInProgress || submissionCompleted) return;
+        if (submissionInProgress) return;
         submissionInProgress = true;
         
         try {
           // Try API first
           try {
             const result = await submitFormViaAPI(formData);
-            submissionCompleted = true;
             console.log('✅ Form submitted successfully via API');
             return result;
           } catch (apiError) {
@@ -183,11 +191,7 @@ async function submitFormDirectToSupabase(formData) {
             // If API fails, try direct Supabase
             try {
               const result = await submitFormDirectToSupabase(formData);
-              submissionCompleted = true;
               console.log('✅ Form submitted successfully via direct Supabase');
-              
-
-              
               return result;
             } catch (supabaseError) {
               // Both methods failed
@@ -200,8 +204,7 @@ async function submitFormDirectToSupabase(formData) {
           }
         } catch (error) {
           console.error('❌ Form submission to database failed:', error.message);
-          // Show user-friendly error (optional)
-          // Don't throw - let the original form submission continue
+          throw error;
         } finally {
           submissionInProgress = false;
         }
@@ -244,7 +247,7 @@ async function submitFormDirectToSupabase(formData) {
           if (loadingDiv) loadingDiv.style.display = 'none';
           if (errorDiv) {
             errorDiv.style.display = 'block';
-            errorDiv.textContent = 'Failed to send message. Please try again.';
+            errorDiv.textContent = `Failed to send message: ${error.message || 'Please try again.'}`;
             errorDiv.classList.add('d-block');
           }
           console.error('Form submission error:', error);
@@ -259,7 +262,7 @@ async function submitFormDirectToSupabase(formData) {
         mutations.forEach((mutation) => {
           if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
             const sentMessage = form.querySelector('.sent-message');
-            if (sentMessage && sentMessage.classList.contains('d-block') && !submissionCompleted) {
+            if (sentMessage && sentMessage.classList.contains('d-block') && !submissionInProgress) {
               // Form was successfully submitted via PHP
               // Also submit to Supabase if not already done
               const formData = new FormData(form);
